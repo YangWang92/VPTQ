@@ -65,7 +65,7 @@ display_to_model = {f"{model['name']} ({model['bits']})": model['name'] for mode
 
 def download_model(model):
     print(f"Downloading {model['name']}...")
-    snapshot_download(repo_id=model['name'])
+    snapshot_download(repo_id=model['name'], max_workers=32)
 
 
 def download_models_in_background():
