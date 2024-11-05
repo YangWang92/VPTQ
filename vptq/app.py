@@ -42,6 +42,18 @@ models = [
         "bits": "2.3 bits"
     },
     {
+        "name": "VPTQ-community/Llama-3.1-Nemotron-70B-Instruct-HF-v8-k65536-65536-woft",
+        "bits": "4 bits"
+    },
+    {
+        "name": "VPTQ-community/Llama-3.1-Nemotron-70B-Instruct-HF-v8-k65536-256-woft",
+        "bits": "3 bits"
+    },
+    {
+        "name": "VPTQ-community/Llama-3.1-Nemotron-70B-Instruct-HF-v16-k65536-1024-woft",
+        "bits": "1.6 bits"
+    },
+    {
         "name": "VPTQ-community/Qwen2.5-72B-Instruct-v8-k65536-65536-woft",
         "bits": "4 bits"
     },
