@@ -7,6 +7,7 @@ import argparse
 import os
 from threading import Thread
 
+import torch
 import transformers
 
 from vptq.layers.model_base import AutoModelForCausalLM as VQAutoModelQuantization
@@ -38,6 +39,7 @@ def eval_prompt(model, tokenizer, args):
     model.generate(**inputs, streamer=streamer, max_new_tokens=100, pad_token_id=2)
 
 
+@torch.inference_mode()
 def chat_loop(model, tokenizer, args):
     if not args.chat:
         eval_prompt(model, tokenizer, args)
@@ -76,10 +78,12 @@ def get_chat_loop_generator(model_id):
         hf_args["token"] = token
 
     model = VQAutoModelQuantization.from_pretrained(model_id, device_map="auto", **hf_args).half()
+    model = torch.compile(model)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, **hf_args)
     if getattr(tokenizer, "chat_template", None) is None:
         raise Exception("warning: this tokenizer didn't provide chat_template.!!!")
 
+    @torch.inference_mode()
     def chat_loop_generator(
         messages, max_tokens: int, stream: bool = True, temperature: float = 1.0, top_p: float = 1.0
     ):
@@ -129,6 +133,7 @@ def main():
         hf_args["token"] = token
 
     model = VQAutoModelQuantization.from_pretrained(args.model, device_map="auto", **hf_args)
+    model = torch.compile(model)
     tokenizer = transformers.AutoTokenizer.from_pretrained(args.tokenizer or args.model, **hf_args)
 
     chat_loop(model, tokenizer, args)
