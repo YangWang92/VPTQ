@@ -62,9 +62,9 @@ def test_weight_quantizer(args):
     print(f'vqlinear: {vqlinear}')
     print(f'vqlinear shape: {vqlinear.dequant().shape}')
     qweight = vqlinear.dequant()
-    # get min abs error
-    min_abs_error = torch.min(torch.abs(weight - qweight))
-    print(f'min abs error: {min_abs_error}')
+    # get mean abs error
+    mean_abs_error = torch.mean(torch.abs(weight - qweight))
+    print(f'mean abs error: {mean_abs_error}')
 
 if __name__ == "__main__":
     parser = ArgumentParser()
