@@ -36,38 +36,6 @@ class QuantizationArguments:
     enable_norm: bool = field(default=False)
     norm_dim: int = field(default=0, metadata={"help": "0: norm out feature, , 1: norm in feature"})
     enable_perm: bool = field(default=False)
-    # config_scale: Literal['minmax', 'np.nanstd',adamaxax'] = field(
-    #     default='minmax',
-    #     metadata={
-    #         "help": "Scaling method for quantization: "
-    #                "minmax (min-max scaling), "
-    #                "meanstd (mean-std normalization), "
-    #                "absmax (absolute max scaling)"
-    #     }
-    # )
-    # centroid_dtype: str = field(
-    #     default='int8',
-    #     metadata={
-    #         "help": "Data type for centroids. Options: fp16, bf16, fp8, int8",
-    #         "dtype_mapping": {
-    #             "fp16": torch.float16, 
-    #             "bf16": torch.bfloat16,
-    #             "fp8": torch.float8_e4m3fn,
-    #             "int8": torch.int8,
-    #         }
-    #     }
-    # )
-    # scale_dtype: str = field(
-    #     default='fp16',
-    #     metadata={
-    #         "help": "Data type for scale. Options: fp16, bf16, fp8",
-    #         "dtype_mapping": {
-    #             "fp16": torch.float16, 
-    #             "bf16": torch.bfloat16,
-    #             "fp8": torch.float8_e4m3fn,
-    #         }
-    #     }
-    # )
 
 # N-percent outlier Vector Quantizator
 # Partition data into N% outliers and (100-N)%.
@@ -257,7 +225,6 @@ class NPVectorQuantizer:
         '''
         do k-means on input data, update centroids and indices
         weights: do not support transpose, weight of each column (length should be data.shape[1])
-
         '''
         self.logger.info(
             f'data shape: {data.shape}, '
@@ -292,9 +259,12 @@ class NPVectorQuantizer:
                 )
 
                 vector_weights = vector_weights.mean(dim=1) if vector_weights is not None else None
-                # convert to numpy and float32 to avoid error
-                sub_vectors = sub_vectors.to(torch.float32).cpu().numpy()
-                with cupy.cuda.Device(vector_weights.device.index):
+                
+                sub_vectors = sub_vectors.cpu().numpy().astype('float32')
+                if vector_weights is not None:
+                    vector_weights = vector_weights.cpu().numpy().astype('float32')
+                
+                with cupy.cuda.Device(data.device.index):
                     _kmeans.fit(sub_vectors, sample_weight=vector_weights)
 
                 self.logger.info(f'cuml kmeans {_kmeans.n_iter_} iterations, error {_kmeans.inertia_}')
@@ -307,11 +277,11 @@ class NPVectorQuantizer:
 
                 self.logger.info(f'idx: {idx}, quant_data shape: {quant_data.shape}')
 
-                # reshape vectors to matrix
+                # reshape vectors to matrix  
                 quant_data = self.reshaper[idx].remove_padding(quant_data.reshape(padded_shape))
 
                 self.logger.info(f'idx: {idx}, quant_data shape: {quant_data.shape}')
-                quant_data.to(device=data.device)
+                quant_data = quant_data.to(device=data.device)
                 quantized_data.append(quant_data)
 
         quantized_data = torch.hstack(quantized_data)
@@ -398,9 +368,14 @@ class NPVectorQuantizer:
 
                 self.logger.info(f'kmeans_mode: {self.kmeans_mode}, cuml kmeans, {num_centroids} clusters')
                 
-                sub_vectors = sub_vectors.to(torch.float32).cpu().numpy()
-                with cupy.cuda.Device(vector_weights.device.index):
+                sub_vectors = sub_vectors.to(torch.float32).cpu().numpy().astype(np.float32)
+                
+                if vector_weights is not None:
+                    vector_weights = vector_weights.cpu().numpy().astype(np.float32)
+                    
+                with cupy.cuda.Device(data.device.index):
                     _kmeans.fit(sub_vectors, sample_weight=vector_weights)
+                
                 self.logger.info(f'cuml kmeans {_kmeans.n_iter_} iterations, error {_kmeans.inertia_}')
 
                 self.res_centroids[idx] = torch.from_numpy(_kmeans.cluster_centers_).to(device=data.device)

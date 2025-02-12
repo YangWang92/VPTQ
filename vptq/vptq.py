@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
+from ast import For
 import time
 
 from numpy import int_
@@ -15,13 +16,10 @@ torch.backends.cudnn.allow_tf32 = False
 
 
 class VPTQ:
-
     def __init__(
         self,
-        layer,
         quantizer,
         hessian,
-        inv_hessian,
         perm,
         zero_idx,
         logger,
@@ -32,14 +30,14 @@ class VPTQ:
         percdamp=.01,
         group_size=-1,
         group_num=-1,
+        inv_hessian=None,
         enable_perm=False,
         enable_norm=False,
         norm_dim=0,
-        debug=False
+        debug=False,
+        layer=None,
+        weight=None,
     ):
-        # set layer
-        # self.layer = layer
-
         # set quantizer
         self.quantizer = quantizer
 
@@ -51,26 +49,42 @@ class VPTQ:
         self.group_size = group_size
         self.group_num = group_num
 
-        # set device
-        self.dev = layer.weight.device
         # layer name
         self.layer_name = layer_name
 
-        # save weight
-        # self.weight = self.layer.weight.data.to(self.dev)
-        # self.qweight = torch.zeros_like(self.weight)
-        # self.hessian = hessian.to(self.dev)
-
-        # preprocess
-        self.layer = layer.to('cpu')
-        self.weight = self.layer.weight.data.to('cpu')
-        self.qweight = torch.zeros_like(self.weight).to('cpu')
-        self.hessian = hessian.to('cpu')
-
-        if inv_hessian is not None:
-            self.inv_hessian = inv_hessian.to('cpu')
+        # set device
+        if layer is not None:
+            self.dev = layer.weight.device
+            self.layer = layer.to('cpu')
+            self.weight = self.layer.weight.data.to('cpu')
         else:
-            self.inv_hessian = None
+            self.layer = None
+            self.dev = weight.device
+            self.weight = weight.to('cpu')
+
+        # out_features
+        self.rows = self.weight.shape[0]
+        # in_features
+        self.columns = self.weight.shape[1]
+
+        self.hessian = hessian.to('cpu')
+        self.qweight = torch.zeros_like(self.weight).to('cpu')
+
+        if inv_hessian is None:
+            inv_hessian = hessian.clone().to(self.dev)
+            damp = self.percdamp * torch.mean(torch.diag(inv_hessian))
+            diag = torch.arange(self.columns, device=self.dev)
+            inv_hessian[diag, diag] += damp
+            # inverse Hessian
+            inv_hessian = torch.linalg.cholesky(inv_hessian)
+            inv_hessian = torch.cholesky_inverse(inv_hessian)
+            inv_hessian = torch.linalg.cholesky(inv_hessian, upper=True)
+        else:
+            inv_hessian = inv_hessian
+       
+        self.inv_hessian = inv_hessian.to('cpu')
+        assert inv_hessian is not None
+        
         if perm is not None:
             self.perm = perm.to('cpu')
         else:
@@ -80,22 +94,11 @@ class VPTQ:
         else:
             self.zero_idx = None
 
-        if isinstance(self.layer, nn.Conv2d):
-            self.weight = self.weight.flatten(1)
-        if isinstance(self.layer, transformers.Conv1D):
-            self.weight = self.weight.t()
-
-        # out_features
-        self.rows = self.weight.shape[0]
-        # in_features
-        self.columns = self.weight.shape[1]
-
-        # nsamples
-        self.nsamples = 0
-
-        # hessian matrix
-        # self.hessian = torch.zeros(
-        #     (self.columns, self.columns), device=self.dev)
+        if layer is not None:
+            if isinstance(self.layer, nn.Conv2d):
+                self.weight = self.weight.flatten(1)
+            elif isinstance(self.layer, transformers.Conv1D):
+                self.weight = self.weight.t()
 
         # collect activation
         self.collect_act = collect_act
@@ -109,9 +112,6 @@ class VPTQ:
         self.enable_norm = enable_norm
         self.norm_dim = norm_dim
         
-        # self.quantizer.weight_scale = None
-        # self.quantizer.weight_bias = None
-
         # debug flag
         self.debug = debug
         self.logger = logger
@@ -126,17 +126,6 @@ class VPTQ:
         inv_hessian = self.inv_hessian.clone().to('cpu')
 
         if self.enable_norm:
-            # norm weight for quantization
-            # self.quantizer.weight_scale = torch.linalg.norm(
-            #     weight, dim=self.norm_dim)
-            # self.quantizer.weight_bias = torch.mean(
-            #     weight, dim=self.norm_dim)
-            # if self.debug:
-            #     self.logger.info(
-            #         f'enabling norm dim {self.norm_dim}, '
-            #         f'layer_name:{self.layer_name}, '
-            #         f'scale:{self.quantizer.weight_scale.shape}, '
-            #         f'bias:{self.quantizer.weight_bias.shape}')
             self.quantizer.init_norm(weight)
 
             weight = (weight - self.quantizer.weight_bias.unsqueeze(self.norm_dim)) / \
@@ -150,12 +139,6 @@ class VPTQ:
         # set group num and size
         self.outlier_size, self.group_size, self.group_num = \
             self.quantizer.get_group_setting(weight)
-
-        # print(f'group_size: {self.group_size}, group_num: {self.group_num}')
-
-        # if not self.quantizer.ready():
-        #     self.quantizer.find_params(W, weight=True)
-        # del self.H
 
         if self.quantizer.kmeans_mode == 'hessian':
             kmeans_weight = torch.diag(hessian).clone().unsqueeze(0).repeat(weight.shape[0], 1)
@@ -247,9 +230,6 @@ class VPTQ:
                 f'{self.layer_name} proxy error after VPTQ: {error_sum.item()}, '
                 f'{sum.item()}, {norm_error.item()}'
             )
-            # debug 
-            # self.logger.info(f'qerror^2: {torch.mean(qerror ** 2).item()}')
-            # torch.save(qweight, f'{self.layer_name}_qweight.pt')
 
         # step 3: residual quantization
         if self.quantizer.num_res_centroids[1] > 1:  # (100-N)%
@@ -259,8 +239,6 @@ class VPTQ:
 
                 # step 3.1: init residual quantization centroids
                 qweight_residual = self.quantizer.init_res_centroids_indices(qerror, kmeans_weight)
-
-                # torch.save(Q_residual, f'Q_residual_{self.layer_name}.pt')
 
                 if self.debug:
                     self.logger.info(f'{self.layer_name} residual time: {time.time() - tick}')
@@ -272,7 +250,7 @@ class VPTQ:
             # step 3.2: VPTQ with initialzed residual centroids
             self.quantizer.clear_indices()
             tick = time.time()
-            qweight, qerror = self.vptq(_weight, _hessian, enable_residual=True, inv_hessian=_inv_hessian)
+            qweight, qerror = self.vptq(_weight, _hessian, inv_hessian=_inv_hessian, enable_residual=True)
 
             if self.debug:
                 self.logger.info(f'{self.layer_name} 2ed gptq time: {time.time() - tick}')
@@ -292,18 +270,18 @@ class VPTQ:
                     f'{error_sum.item()}, {sum.item()}, {norm_error.item()}'
                 )
 
-        # self.quantizer.save(qweight)
-
         if self.quantizer.enable_perm:
             inv_perm = torch.argsort(self.quantizer.perm)
             qweight = qweight[:, inv_perm]
-            # self.quantizer.perm = self.quantizer.perm.cpu().numpy()
 
         if isinstance(self.layer, transformers.Conv1D):
             qweight = qweight.t()
 
         # reshape back to original shape
-        qweight = qweight.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        if self.layer is not None:
+            qweight = qweight.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        else:
+            qweight = qweight.reshape(self.weight.shape).to(self.weight.dtype)
 
         if self.enable_norm:
             qweight = qweight * self.quantizer.weight_scale.unsqueeze(self.norm_dim) + \
@@ -312,13 +290,14 @@ class VPTQ:
         self.qweight = qweight
 
         # post process
-        self.layer = self.layer.to(self.dev)
+        if self.layer is not None:
+            self.layer = self.layer.to(self.dev)
         self.weight = self.weight.to(self.dev)
         self.qweight = self.qweight.to(self.dev)
         torch.cuda.empty_cache()
 
     # vptq algorithm, we do not permute weight and hessian here
-    def vptq(self, weight, hessian, enable_residual=False, inv_hessian=None):
+    def vptq(self, weight, hessian, inv_hessian, enable_residual=False):
         # force set step=1 if transposed
         self.step = 1 if self.quantizer.enable_transpose else self.step
 
@@ -327,25 +306,6 @@ class VPTQ:
 
         # gptq error
         qerror = torch.zeros_like(weight)
-
-        if inv_hessian is None:
-            damp = self.percdamp * torch.mean(torch.diag(hessian))
-            diag = torch.arange(self.columns, device=self.dev)
-            hessian[diag, diag] += damp
-
-            # inverse Hessian
-            hessian = torch.linalg.cholesky(hessian)
-            hessian = torch.cholesky_inverse(hessian)
-
-            # follow gptq methods
-            # upper=True: whether to return an upper triangular matrix
-            # compute all information needed from H-1 upfront
-
-            hessian = torch.linalg.cholesky(hessian, upper=True)
-            inv_hessian = hessian
-        else:
-            inv_hessian = inv_hessian
-            assert inv_hessian is not None
 
         # select weight[i, j] to quantize
         for i in range(0, self.columns, self.block_size):

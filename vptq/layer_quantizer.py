@@ -86,7 +86,7 @@ def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name
 
             # init vptq algo
             _vptq = VPTQ(
-                linear,
+                layer=linear,
                 hessian=hessian,
                 inv_hessian=inv_hessian,
                 perm=perm,
