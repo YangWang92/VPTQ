@@ -6,12 +6,12 @@ import torch.nn as nn
 
 
 # find specific layers in a model
-def find_layers(module, layers=[nn.Linear], name=''):
-    if type(module) in layers:
+def find_layers(module, target_layers=[nn.Linear], name=''):
+    if type(module) in target_layers:
         return {name: module}
     res = {}
     for old_name, child in module.named_children():
-        res.update(find_layers(child, layers=layers, name=name + '.' + old_name if name != '' else old_name))
+        res.update(find_layers(child, target_layers=target_layers, name=name + '.' + old_name if name != '' else old_name))
     return res
 
 

@@ -14,17 +14,15 @@ from vptq.utils.layer_utils import find_layers, replace_layer
 from vptq.vptq import VPTQ
 
 
-def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name2hessian=None):
-
+def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name2hessian=None, target_layers=None):
     qlinear_args = {}
-    operators = find_layers(layer)
+    print(f"layer: {layer}")
+    operators = find_layers(layer, target_layers)
     opeartor_names = [list(operators.keys())]
     # with torch.no_grad():
     for names in opeartor_names:
         # subset: (op name, op) pairs
         subset = {n: operators[n] for n in names}
-        # 'self_attn.q_proj', 'self_attn.k_proj', 'self_attn.v_proj',
-        # 'self_attn.o_proj', 'mlp.gate_proj', 'mlp.up_proj', 'mlp.down_proj'
         logger.info(subset.keys())
 
         for name in subset:
@@ -84,6 +82,23 @@ def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name
                 debug=True,
             )
 
+            # mock weight for dry run
+            # if args.dry_run:
+            #     dtype = linear.weight.dtype
+            #     mock_weight = torch.rand(linear.weight.size()).to(dev)
+            #     mock_weight = mock_weight.to(dtype)
+            #     linear.weight = torch.nn.Parameter(mock_weight)
+            
+            print(f'linear {linear}, weight: {linear.weight.shape, linear.weight.dtype}, scale: {linear.scale.shape, linear.scale.dtype}')
+            
+            if args.cast_type == "bfloat16" and linear.weight.dtype == torch.float8_e4m3fn:
+                from deepseek.kernel import weight_dequant 
+                bfloat16_weight = weight_dequant(x=linear.weight, s=linear.scale, block_size=128)
+                print(f'dequant weight from float8_e4m3fn: {bfloat16_weight.shape, bfloat16_weight.dtype}')
+                linear.weight = torch.nn.Parameter(bfloat16_weight)
+                print(f"dequant weight to: {linear.weight.shape, linear.weight.dtype}")
+                print(f'hessian: {hessian.shape, hessian.dtype}')
+             
             # init vptq algo
             _vptq = VPTQ(
                 linear,

@@ -42,7 +42,7 @@ def setup_logging(log_path, task_id, debug=True):
 
 
 # quantize executer
-def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_queues, name2hessian=None, dev=None):
+def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_queues, name2hessian=None, target_layers=None, dev=None):
     # TODO: we have to set the device in os environment
     # cuml 23.12 only runs on the CUDA:0
     dev = 'cuda:0' if dev is None else dev
@@ -66,6 +66,11 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
         current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         logger.info(f'----Quantizing layer {layer_idx} ...---- {current_time} on {dev} dtype {dtype}')
 
+        if args.enable_offload:
+            print(f'load layer {layer_idx} from {args.model_name}/layer_{layer_idx}.pt')
+            layer = torch.load(f'{args.model_name}/layer_{layer_idx}.pt')
+
+        # quantize layer
         layer, qlinear_args = layer_quantizer(
             args,
             quant_args,
@@ -74,7 +79,8 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
             logger,
             dev,
             dtype,
-            name2hessian=name2hessian
+            name2hessian=name2hessian,
+            target_layers=target_layers
         )
 
         # send quantized layer to output queue
@@ -96,6 +102,10 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
                 layer_qlinear_args[layer_idx] = qlinear_args
             else:
                 output_queues.put((task_id, layer_idx, layer_state_dict, qlinear_args))
+
+        if args.enable_offload:
+            del layer
+            torch.cuda.empty_cache()
 
     # for single gpu quantization
     if output_queues is None:

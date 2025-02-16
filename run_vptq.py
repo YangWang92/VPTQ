@@ -19,6 +19,7 @@ from vptq.models.mistral import get_mistral
 from vptq.models.nvembed import get_nvembed, quant_nvembed
 from vptq.models.qwen import eval_qwen, get_qwen, quant_qwen
 from vptq.models.phi import eval_phi, get_phi, quant_phi
+from vptq.models.deepseek import get_deepseek, quant_deepseek
 from vptq.quantizer import QuantizationArguments
 from vptq.utils.data import get_data_loader
 from vptq.utils.pack import absorb_perm, pack_model
@@ -27,6 +28,9 @@ from vptq.utils.pack import absorb_perm, pack_model
 @dataclass
 class VPTQArguments:
     model_name: str = field(default="meta-llama/Llama-2-7b-hf")
+    config_path: str = field(default=None)
+    enable_offload: bool = field(default=False)
+    cast_type: str = field(default="bfloat16")
     seq_len: Optional[int] = field(default=None)
     quant_step: int = field(default=1)
     percdamp: float = field(default=0.01)
@@ -67,13 +71,15 @@ if __name__ == "__main__":
         model = get_nvembed(args.model_name)
     elif "phi" in args.model_name.lower():
         model = get_phi(args.model_name)
+    elif "deepseek" in args.model_name.lower():
+        model = get_deepseek(args.model_name, args.config_path, enable_offload=args.enable_offload)
     else:
         raise ValueError(f"Unsupported model: {args.model_name}")
 
     # set sequence length
-    if args.seq_len or model.seqlen is None:
-        model.seqlen = args.seq_len
-    print(f"model sequence length: {model.seqlen}")
+    # if args.seq_len or model.seqlen is None:
+    #     model.seqlen = args.seq_len
+    # print(f"model sequence length: {model.seqlen}")
 
     model.eval()
 
@@ -90,6 +96,8 @@ if __name__ == "__main__":
         model, quantizers = quant_nvembed(model, args, quant_args)
     elif "phi" in args.model_name.lower():
         model, quantizers = quant_phi(model, args, quant_args)
+    elif "deepseek" in args.model_name.lower():
+        model, quantizers = quant_deepseek(model, args, quant_args)
     else:
         raise ValueError(f"Unsupported model: {args.model_name}")
 
