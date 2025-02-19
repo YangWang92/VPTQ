@@ -61,7 +61,21 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
         layer_qlinear_args = {}
 
     for (layer_idx, layer) in tasks:
-        dtype = next(iter(layer.parameters())).dtype
+        # offload layer
+        if args.enable_offload:
+            layer = torch.load(layer)
+            print(f'load layer {layer_idx} from {layer}')
+        
+        # fix dtype for fp8
+        if quant_args.cast_dtype is not None:
+            if quant_args.cast_dtype == 'bf16':
+                dtype = torch.bfloat16
+            elif quant_args.cast_dtype == 'fp16':
+                dtype = torch.float16
+            else:
+                raise ValueError(f'Invalid cast dtype: {quant_args.cast_dtype}')
+        else:
+            dtype = next(iter(layer.parameters())).dtype
 
         current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         logger.info(f'----Quantizing layer {layer_idx} ...---- {current_time} on {dev} dtype {dtype}')

@@ -40,16 +40,35 @@ def get_deepseek(model_name, config_path, enable_offload=False):
     
     print(f'deepseek config: {model_args}')
 
-    # load model
-    model = Transformer(model_args)
-    
     # if seqlen is not None:
     #     model.seqlen = seqlen
         
     if enable_offload:
-        print(f"offload model load")
+        # load layer list
+        # layers = {}
+        layers = []
+        layer_files = sorted([f for f in os.listdir(model_name) if f.startswith('layer') and f.endswith('.pt')])
+        for layer_file in layer_files:
+            layer_idx = int(layer_file.split('_')[-1].split('.')[0])
+            layer_path = os.path.join(model_name, layer_file)
+            # layers[layer_idx] = layer_path
+            layers.append(layer_path)
+        
+        print(f'get offload layers: {layers}')
+        # load model
+        class OffloadModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = None
+                self.layers = layers
+                self.model_args = model_args
+            def forward(self, x):
+                return x
+        print(f"offload model loaded")
+        model = OffloadModel()
     else:
         with torch.device("cpu"):  # Always load model to CPU first
+            model = Transformer(model_args)
             # Always load distributed model files
             start_time = time.time()
             path = os.path.join(model_name, f"model0-mp1.safetensors")
@@ -115,17 +134,33 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
     input_queues = mq_manager.Queue()
     output_queues = mq_manager.Queue()
 
-    # name to hessian
+    # rename to hessian
     name2hessian = {
         'attn.wq_a': 'attn.wq_a',
         'attn.wq_b': 'attn.wq_b',
         'attn.wkv_a': 'attn.wkv_a',
         'attn.wkv_b': 'attn.wkv_b',
         'attn.wo': 'attn.wo',
-        'mlp.w1': 'mlp.w1',
-        'mlp.w2': 'mlp.w2',
-        'mlp.w3': 'mlp.w3',
+        'ffn.w1': 'ffn.w1',
+        'ffn.w2': 'ffn.w2',
+        'ffn.w3': 'ffn.w1',
     }
+
+    # init MoE name to hessian, shared_experts=1 for DeepSeek-V3
+    if model.model_args.n_shared_experts == 1:
+        name2hessian[f'ffn.shared_experts.w1'] = f'ffn.shared_experts.w1'
+        name2hessian[f'ffn.shared_experts.w2'] = f'ffn.shared_experts.w2'
+        name2hessian[f'ffn.shared_experts.w3'] = f'ffn.shared_experts.w1'
+    else:
+        for i in range(model.model_args.n_shared_experts):
+            name2hessian[f'ffn.shared_experts.{i}.w1'] = f'ffn.shared_experts.{i}.w1'
+            name2hessian[f'ffn.shared_experts.{i}.w2'] = f'ffn.shared_experts.{i}.w2'
+            name2hessian[f'ffn.shared_experts.{i}.w3'] = f'ffn.shared_experts.{i}.w1'
+    
+    for i in range(model.model_args.n_routed_experts):
+        name2hessian[f'ffn.experts.{i}.w1'] = f'ffn.experts.{i}.w1'
+        name2hessian[f'ffn.experts.{i}.w2'] = f'ffn.experts.{i}.w2'
+        name2hessian[f'ffn.experts.{i}.w3'] = f'ffn.experts.{i}.w1'
     
     target_layers = [ColumnParallelLinear, RowParallelLinear, Linear]
  
@@ -197,7 +232,7 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
         print('Error: not all layers are quantized')
         exit(1)
 
-    qmodel = get_quantized_llama(model_name, args.seq_len, layer_state_dicts, layer_qlinear_args)
+    qmodel = get_quantized_deepseek(model_name, args.seq_len, layer_state_dicts, layer_qlinear_args)
 
     model = qmodel
 
@@ -207,12 +242,12 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
     return model, quantizers
 
 
-def get_quantized_llama(model_name, seqlen, layer_state_dicts, layer_qlinear_args):
+def get_quantized_deepseek(model_name, seqlen, layer_state_dicts, layer_qlinear_args):
 
     # print(f'layer_state_dicts: {layer_state_dicts.keys()}')
     model = get_data(model_name, seqlen=seqlen)
     dtype = next(iter(model.parameters())).dtype
-    layers = model.model.layers
+    layers = model.layers
 
     for layer_idx, layer_state_dict in layer_state_dicts.items():
         # print(f'load quantized layer {layer_idx}')
