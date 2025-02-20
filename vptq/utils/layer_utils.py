@@ -15,9 +15,13 @@ def find_layers(module, target_layers=[nn.Linear], name=''):
     return res
 
 
-def replace_layer(module, name, layer):
+def replace_layer(module, target_name, layer, module_name=None):
     for child_name, child_module in module.named_children():
-        if child_name == name:
+        current_name = child_name if module_name is None else f'{module_name}.{child_name}'
+        if target_name == current_name:
             setattr(module, child_name, layer)
+            return True 
         else:
-            replace_layer(child_module, name, layer)
+            if replace_layer(child_module, target_name, layer, current_name):
+                return True 
+    return False 

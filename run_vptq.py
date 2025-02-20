@@ -30,7 +30,6 @@ class VPTQArguments:
     model_name: str = field(default="meta-llama/Llama-2-7b-hf")
     config_path: str = field(default=None)
     enable_offload: bool = field(default=False)
-    cast_type: str = field(default="bfloat16")
     seq_len: Optional[int] = field(default=None)
     quant_step: int = field(default=1)
     percdamp: float = field(default=0.01)

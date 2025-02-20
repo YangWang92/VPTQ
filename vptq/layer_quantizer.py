@@ -19,12 +19,14 @@ def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name
     print(f"layer: {layer}")
     operators = find_layers(layer, target_layers)
     opeartor_names = [list(operators.keys())]
+    logger.info(f'opeartor_names: {opeartor_names}')
     # with torch.no_grad():
     for names in opeartor_names:
         # subset: (op name, op) pairs
         subset = {n: operators[n] for n in names}
         logger.info(subset.keys())
 
+        # for each linear
         for name in subset:
             # load Hessian
             if name2hessian is None:
@@ -82,16 +84,9 @@ def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name
                 debug=True,
             )
 
-            # mock weight for dry run
-            # if args.dry_run:
-            #     dtype = linear.weight.dtype
-            #     mock_weight = torch.rand(linear.weight.size()).to(dev)
-            #     mock_weight = mock_weight.to(dtype)
-            #     linear.weight = torch.nn.Parameter(mock_weight)
-            
             print(f'linear {linear}, weight: {linear.weight.shape, linear.weight.dtype}, scale: {linear.scale.shape, linear.scale.dtype}')
             
-            if args.cast_type == "bfloat16" and linear.weight.dtype == torch.float8_e4m3fn:
+            if quant_args.cast_dtype == "bf16" and linear.weight.dtype == torch.float8_e4m3fn:
                 from deepseek.kernel import weight_dequant 
                 bfloat16_weight = weight_dequant(x=linear.weight, s=linear.scale, block_size=128)
                 print(f'dequant weight from float8_e4m3fn: {bfloat16_weight.shape, bfloat16_weight.dtype}')
@@ -193,9 +188,7 @@ def layer_quantizer(args, quant_args, layer, layer_idx, logger, dev, dtype, name
             qlayer.to(dev)
 
             # replace layer with qlinear
-            module_name = name.split('.')[-1]
-
-            replace_layer(layer, module_name, qlayer)
+            replace_layer(layer, name, qlayer)
 
             # del quantizer
             # del _vptq

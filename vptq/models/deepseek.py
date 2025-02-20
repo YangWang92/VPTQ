@@ -163,7 +163,7 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
         name2hessian[f'ffn.experts.{i}.w3'] = f'ffn.experts.{i}.w1'
     
     target_layers = [ColumnParallelLinear, RowParallelLinear, Linear]
- 
+
     if args.num_gpus == 1:
         layer_state_dicts, layer_qlinear_args = quantize_executer(0, tasks[0], args, 
                                                                   quant_args, None, None, 

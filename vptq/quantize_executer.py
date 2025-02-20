@@ -63,7 +63,7 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
     for (layer_idx, layer) in tasks:
         # offload layer
         if args.enable_offload:
-            layer = torch.load(layer)
+            layer = torch.load(layer, weights_only=False)
             print(f'load layer {layer_idx} from {layer}')
         
         # fix dtype for fp8
@@ -82,7 +82,7 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
 
         if args.enable_offload:
             print(f'load layer {layer_idx} from {args.model_name}/layer_{layer_idx}.pt')
-            layer = torch.load(f'{args.model_name}/layer_{layer_idx}.pt')
+            layer = torch.load(f'{args.model_name}/layer_{layer_idx}.pt', weights_only=False)
 
         # quantize layer
         layer, qlinear_args = layer_quantizer(
@@ -100,7 +100,7 @@ def quantize_executer(task_id, tasks, args, quant_args, input_queues, output_que
         # send quantized layer to output queue
         layer_state_dict = layer.cpu().state_dict()
 
-        # for 70b/405b models,
+        # for 70b/405b/deepseek models,
         # layer_state_dict is too large for CPU memory
         if args.save_qlinear:
             # view uint16 as int16 to bypass KeyError: torch.uint16
