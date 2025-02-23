@@ -18,7 +18,6 @@ def load_model_from_safetensors(ckpt_path: str, config_path: str, dry_run: bool,
         # Always load distributed model files
         if not dry_run:
             load_model(model, os.path.join(ckpt_path, f"model0-mp{world_size}.safetensors"))
-            print(f"load_model time: {time.time() - os.startfile:.2f}s")
         else:
             print(f"dry run model load")
     return model       
