@@ -13,15 +13,21 @@ from safetensors.torch import load_model
 def load_model_from_safetensors(ckpt_path: str, config_path: str, dry_run: bool, world_size: int=1) -> Transformer:
     with open(config_path) as f:
         model_args = ModelArgs(**json.load(f))
+    
+    # Enable PyTorch's multiprocessing for tensor loading
+    torch.set_num_threads(os.cpu_count())
+    torch.set_num_interop_threads(os.cpu_count())
+    
     with torch.device("cpu"):  # Always load model to CPU first
         model = Transformer(model_args)
         # Always load distributed model files
         if not dry_run:
-            load_model(model, os.path.join(ckpt_path, f"model-mp{world_size}.safetensors"))
-            print(f"load_model time: {time.time() - os.startfile:.2f}s")
+            start_time = time.time()
+            load_model(model, os.path.join(ckpt_path, f"model0-mp{world_size}.safetensors"), device="cpu")
+            print(f"load_model time: {time.time() - start_time:.2f}s")
         else:
             print(f"dry run model load")
-    return model       
+    return model
 
 
 def create_vqlinear(layer_qlinear_args, layer_state_dict, dtype=torch.bfloat16):
@@ -45,35 +51,40 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16):
     layer_list = get_checkpoint_layer_list(path, num_layers)
     
     for (layer_idx, layer_qlinear_args, layer_state_dict) in layer_list:
-        print(f'--------------------------------') 
-        
-        print(f'layer_idx: {layer_idx}')
+        print(f'handle layer {layer_idx}')
         layer = layers[layer_idx]
         
-        layer_qlinear_args = torch.load(layer_qlinear_args)
-        layer_state_dict = torch.load(layer_state_dict)
+        layer_qlinear_args = torch.load(layer_qlinear_args, weights_only=False)
+        layer_state_dict = torch.load(layer_state_dict, weights_only=False)
         
         ops = find_layers(layer, target_layers)
         
-        print(f'ops from original model: {ops.keys()}')
-        print(f'--------------------------------') 
+        # print(f'ops from original model: {ops.keys()}')
+        # print(f'--------------------------------') 
         for module_name, op in ops.items():
             # init qlinear
-            print(f'init module_name: {module_name}')
+            # print(f'init module_name: {module_name}')
             qlinear = VQuantLinear(
                 **layer_qlinear_args[module_name],
                 dtype=dtype,
             )
             replace_layer(layer, module_name, qlinear)
         
-        layer.load_state_dict(layer_state_dict[module_name])
-       
+        layer.load_state_dict(layer_state_dict)
+        # print(f'replace layer {layer}')
+        print(f'--------------------------------')
         del layer_qlinear_args
         del layer_state_dict
-    print(f'--------------------------------')
+        
     print(f'quantized model: {model}')
     return model
 
+def save_model(model: Transformer, save_path: str):
+    os.makedirs(save_path, exist_ok=True)
+    from safetensors.torch import save_file
+    save_file(model.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_model", type=str, required=True)
@@ -89,6 +100,9 @@ def main():
     # get quantized model
     quantized_model = get_quantized_deepseek(model, args.input_quantized_ckpt)
     print(quantized_model)
+
+    # save quantized model
+    save_model(quantized_model, args.output_model)
 
 if __name__ == "__main__":
     main()
