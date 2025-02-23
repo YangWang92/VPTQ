@@ -13,21 +13,15 @@ from safetensors.torch import load_model
 def load_model_from_safetensors(ckpt_path: str, config_path: str, dry_run: bool, world_size: int=1) -> Transformer:
     with open(config_path) as f:
         model_args = ModelArgs(**json.load(f))
-    
-    # Enable PyTorch's multiprocessing for tensor loading
-    torch.set_num_threads(os.cpu_count())
-    torch.set_num_interop_threads(os.cpu_count())
-    
     with torch.device("cpu"):  # Always load model to CPU first
         model = Transformer(model_args)
         # Always load distributed model files
         if not dry_run:
-            start_time = time.time()
-            load_model(model, os.path.join(ckpt_path, f"model0-mp{world_size}.safetensors"), device="cpu")
-            print(f"load_model time: {time.time() - start_time:.2f}s")
+            load_model(model, os.path.join(ckpt_path, f"model0-mp{world_size}.safetensors"))
+            print(f"load_model time: {time.time() - os.startfile:.2f}s")
         else:
             print(f"dry run model load")
-    return model
+    return model       
 
 
 def create_vqlinear(layer_qlinear_args, layer_state_dict, dtype=torch.bfloat16):
@@ -79,10 +73,10 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16):
     print(f'quantized model: {model}')
     return model
 
-def save_model(model: Transformer, save_path: str):
+def save_model(model: Transformer, save_path: str, world_size: int = 1):
     os.makedirs(save_path, exist_ok=True)
     from safetensors.torch import save_file
-    save_file(model.state_dict(), save_path)
+    save_file(model.state_dict(), f"{save_path}/model0-mp{world_size}.safetensors")
     print(f"Model saved to {save_path}")
     
 def main():
