@@ -50,9 +50,11 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16, enable_pack: bool=
     for (layer_idx, layer_qlinear_args_path, layer_state_dict_path) in layer_list:
         print(f'handle layer {layer_idx}')
         layer = layers[layer_idx]
-        
+         
         layer_qlinear_args = torch.load(layer_qlinear_args_path, weights_only=False)
         layer_state_dict = torch.load(layer_state_dict_path, weights_only=False)
+        
+        layer = layer.to('cuda')
         
         ops = find_layers(layer, target_layers)
 
@@ -62,6 +64,7 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16, enable_pack: bool=
                 **layer_qlinear_args[module_name],
                 dtype=dtype
             )
+            qlinear = qlinear.to('cuda')
             replace_layer(layer, module_name, qlinear)
             # write to quant_config
             quantization_config['config_for_layers'][f'{layer_idx}.{module_name}'] = {
@@ -82,6 +85,7 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16, enable_pack: bool=
                     print(f'pack indices layer: {layer_idx}')
                 replace_layer(layer, module_name, op)
         
+        layer = layer.to('cpu')
         del layer_qlinear_args
         del layer_state_dict
         print(f'--------------------------------')
