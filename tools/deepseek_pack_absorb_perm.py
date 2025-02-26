@@ -97,7 +97,7 @@ def get_quantized_deepseek(model, path, dtype=torch.bfloat16, enable_pack: bool=
 def save_model(model: Transformer, save_path: str, world_size: int = 1):
     os.makedirs(save_path, exist_ok=True)
     from safetensors.torch import save_file
-    save_file(model.state_dict(), f"{makepath}/model0-mp{world_size}.safetensors")
+    save_file(model.state_dict(), f"{save_path}/model0-mp{world_size}.safetensors")
     print(f"Model saved to {save_path}")
 
 
@@ -239,8 +239,11 @@ def main():
     save_model(quantized_model, args.output_model)
 
     # save quant_config
-    with open(args.output_model + 'quantization_config.json', 'w') as f:
-        json.dump(quantization_config, f)
+    # with open(args.output_model + 'quantization_config.json', 'w') as f:
+    #     json.dump(quantization_config, f)
+    import pickle
+    with open(args.output_model + 'quantization_config.pkl', 'wb') as f:
+        pickle.dump(quantization_config, f)
 
 if __name__ == "__main__":
     main()
