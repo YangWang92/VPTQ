@@ -16,6 +16,14 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 
+dependencies = [
+    "torch>=2.4.1",
+    "cuml-cu12>=23.12", 
+    "accelerate",
+    "transformers>=4.45",
+    "sentence_transformers"
+]
+
 [project.urls]
 Homepage = "https://github.com/microsoft/VPTQ"
 Issues = "https://github.com/microsoft/VPTQ/issues"
