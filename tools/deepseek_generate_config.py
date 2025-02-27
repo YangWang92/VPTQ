@@ -161,7 +161,8 @@ def main():
     config_for_layers = convert_dtypes_to_str(vptq_config['config_for_layers'])
     
     new_config_for_layers = {}
-
+    repo_config_for_layers = {}
+    
     # update config_for_layers
     for key, value in config_for_layers.items():
         print(f'update {key}')
@@ -171,9 +172,14 @@ def main():
         # New approach: convert to shortened format
         # First, create the original format key
         original_format_key = 'layers.' + key
+        
+        repo_config_for_layers[original_format_key] = value
         # Then convert to the shortened format
         new_key = convert_to_original_format(original_format_key)
         
+        # del .weight from new_key
+        new_key = new_key.replace('.weight', '')
+         
         new_config_for_layers[new_key] = value
         print(f'Converted: {original_format_key} -> {new_key}')
         print('----')
@@ -186,6 +192,11 @@ def main():
     } 
     with open(args.output_config, 'w') as f:
         json.dump(deepseek_config, f, cls=TorchDtypeEncoder, indent=2)
+    
+    deepseek_repo_config['quantization_config'] = {
+        'config_for_layers': repo_config_for_layers,
+        'quant_method': 'vptq'
+    }
     
     with open(f'repo_{args.output_config}', 'w') as f:
         json.dump(deepseek_repo_config, f, cls=TorchDtypeEncoder, indent=2)
