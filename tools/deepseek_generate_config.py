@@ -178,12 +178,17 @@ def main():
         print(f'Converted: {original_format_key} -> {new_key}')
         print('----')
     
+    deepseek_repo_config = deepseek_config.copy()
+     
     deepseek_config['quantization_config'] = {
         'config_for_layers': new_config_for_layers,
         'quant_method': 'vptq'
     } 
     with open(args.output_config, 'w') as f:
         json.dump(deepseek_config, f, cls=TorchDtypeEncoder, indent=2)
-        
+    
+    with open(f'repo_{args.output_config}', 'w') as f:
+        json.dump(deepseek_repo_config, f, cls=TorchDtypeEncoder, indent=2)
+     
 if __name__ == '__main__':
     main()
