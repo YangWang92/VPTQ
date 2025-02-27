@@ -1,5 +1,6 @@
 import safetensors.torch
 import os
+import argparse
 
 # load ~/yangwang/packed_output_model/model0-mp1.safetensors
 
@@ -140,27 +141,49 @@ def test_conversion():
 
 # Main execution
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Convert DeepSeek model layer names and save to a new safetensors file')
+    parser.add_argument('--input', type=str, default="~/yangwang/packed_output_model/model0-mp1.safetensors",
+                        help='Path to the input safetensors file')
+    parser.add_argument('--output', type=str, default="./converted_model.safetensors",
+                        help='Path to save the output safetensors file')
+    parser.add_argument('--mapping-file', type=str, default="./transformed_keys.json",
+                        help='Path to save the key mapping JSON file')
+    parser.add_argument('--test-only', action='store_true',
+                        help='Only run test conversion without processing the model')
+    
+    args = parser.parse_args()
+    
     # Run test conversion first to verify the fixes
     test_conversion()
     
-    # Path to the safetensors file
-    model_path = os.path.expanduser("~/yangwang/packed_output_model/model0-mp1.safetensors")
+    if args.test_only:
+        print("\nTest only mode. Exiting.")
+        exit(0)
     
-    print(f"\nLoading keys from: {model_path}")
+    # Expand user path (e.g., ~)
+    input_path = os.path.expanduser(args.input)
+    output_path = os.path.expanduser(args.output)
+    mapping_file = os.path.expanduser(args.mapping_file)
     
-    # Load only the keys from the safetensors file
-    model_keys = safetensors.torch.load_file(model_path).keys()
+    print(f"\nLoading model from: {input_path}")
+    
+    # Load the safetensors file
+    model_data = safetensors.torch.load_file(input_path)
     
     # Dictionary to store the transformed keys
     transformed_keys = {}
+    # Dictionary to store the transformed tensors
+    transformed_tensors = {}
     
-    print(f"Found {len(model_keys)} keys in the model file.")
+    print(f"Found {len(model_data)} keys in the model file.")
     print("Converting keys to original format...")
     
-    # Process each key
-    for key in model_keys:
+    # Process each key and tensor
+    for key, tensor in model_data.items():
         original_key = convert_to_original_format(key)
         transformed_keys[key] = original_key
+        transformed_tensors[original_key] = tensor
     
     # Print a sample of the transformed keys
     print("\nSample of transformed keys (first 10):")
@@ -168,10 +191,14 @@ if __name__ == "__main__":
         print(f"{i+1}. {k} -> {v}")
     
     # Save the transformed keys to a file
-    output_file = "transformed_keys.json"
-    print(f"\nSaving all transformed keys to {output_file}")
-    
-    with open(output_file, "w") as f:
+    print(f"\nSaving key mappings to {mapping_file}")
+    with open(mapping_file, "w") as f:
         f.write("{\n" + ",\n".join([f'    "{k}": "{v}"' for k, v in transformed_keys.items()]) + "\n}")
     
-    print(f"Successfully saved {len(transformed_keys)} key mappings to {output_file}")
+    # Save the transformed model to a new safetensors file
+    print(f"Saving transformed model to {output_path}")
+    safetensors.torch.save_file(transformed_tensors, output_path)
+    
+    print(f"Successfully saved {len(transformed_keys)} key mappings to {mapping_file}")
+    print(f"Successfully saved transformed model to {output_path}")
+
