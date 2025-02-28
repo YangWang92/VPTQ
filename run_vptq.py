@@ -47,6 +47,40 @@ class VPTQArguments:
     eval_nsamples: int = field(default=128)
     save_qlinear: bool = field(default=False)
     absorb_perm: bool = field(default=False)
+    layer_range: Optional[str] = field(default=None)
+
+    def __post_init__(self):
+        # Parse layer_range if provided
+        if self.layer_range is not None:
+            self.parsed_layer_range = parse_layer_range(self.layer_range)
+        else:
+            self.parsed_layer_range = None
+
+
+def parse_layer_range(layer_range_str):
+    """
+    Parse a layer range string into a list of integers.
+    
+    Examples:
+        "0-11" -> [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        "0,2,4" -> [0, 2, 4]
+        "0-2,4-6" -> [0, 1, 2, 4, 5, 6]
+    """
+    if not layer_range_str:
+        return None
+    
+    result = []
+    parts = layer_range_str.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            start, end = map(int, part.split('-'))
+            result.extend(list(range(start, end + 1)))
+        else:
+            result.append(int(part))
+    
+    return result
 
 
 if __name__ == "__main__":
