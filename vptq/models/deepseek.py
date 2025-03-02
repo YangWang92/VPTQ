@@ -99,7 +99,24 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
 
     # calculate task allocation
     total_layers = len(layers)
+    
+    # filter layers based on parsed_layer_range if provided
+    filtered_layers = []
+    if args.parsed_layer_range is not None:
+        for idx, layer in enumerate(layers):
+            if idx in args.parsed_layer_range:
+                filtered_layers.append((idx, layer))
+        print(f'Filtered layers: {[idx for idx, _ in filtered_layers]}')
+    else:
+        filtered_layers = [(idx, layer) for idx, layer in enumerate(layers)]
+    
+    # recalculate total layers after filtering
+    total_layers = len(filtered_layers)
     num_gpus = min(args.num_gpus, total_layers)
+    
+    if total_layers == 0:
+        print("Warning: No layers to quantize after filtering!")
+        return model, []
 
     base_layers_per_gpu = total_layers // num_gpus
     remaining_layers = total_layers % num_gpus
@@ -118,8 +135,9 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
 
         # Assign layers to this GPU
         for _ in range(layers_for_this_gpu):
-            current_gpu_tasks.append((current_layer_idx, layers[current_layer_idx]))
-            current_layer_idx += 1
+            if current_layer_idx < total_layers:
+                current_gpu_tasks.append(filtered_layers[current_layer_idx])
+                current_layer_idx += 1
 
         tasks.append(current_gpu_tasks)
 
@@ -227,19 +245,22 @@ def quant_deepseek(model, args, quant_args, dev='cuda'):
                 layer_qlinear_args[layer_idx] = _layer_qlinear_args
                 print(f'gpu {gpu_id} layer {layer_idx} quantized')
 
-    # check if all layers are quantized
-    if len(layer_state_dicts) != len(layers):
-        print('Error: not all layers are quantized')
-        exit(1)
+    print(f'layer_state_dicts: {layer_state_dicts.keys()} are quantized')
+    exit(0)
+    # exit(0)
+    # # check if all layers are quantized
+    # if len(layer_state_dicts) != len(layers):
+    #     print('Error: not all layers are quantized')
+    #     exit(1)
 
-    qmodel = get_quantized_deepseek(model_name, args.seq_len, layer_state_dicts, layer_qlinear_args)
+    # qmodel = get_quantized_deepseek(model_name, args.seq_len, layer_state_dicts, layer_qlinear_args)
 
-    model = qmodel
+    # model = qmodel
 
-    print(f'qmodel: {model}')
+    # print(f'qmodel: {model}')
 
-    torch.cuda.empty_cache()
-    return model, quantizers
+    # torch.cuda.empty_cache()
+    # return model, quantizers
 
 
 def get_quantized_deepseek(model_name, seqlen, layer_state_dicts, layer_qlinear_args):
