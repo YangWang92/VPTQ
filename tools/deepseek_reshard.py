@@ -64,7 +64,6 @@ if __name__ == "__main__":
      
     for rank in range(args.world_size):
         print(f'processing rank: {rank}')
-        removed_keys = []
         # Load the safetensors file
         model_data = safetensors.torch.load_file(args.input_model)
         n_local_experts = args.num_experts // args.world_size
@@ -149,7 +148,10 @@ if __name__ == "__main__":
                         slice_size = indices_shape[dim] // args.world_size
                         start_idx = rank * slice_size
                         end_idx = (rank + 1) * slice_size if rank < args.world_size - 1 else indices_shape[dim]
-                        unpacked_indices = unpacked_indices[start_idx:end_idx]
+                        if dim == 0:
+                            unpacked_indices = unpacked_indices[start_idx:end_idx, :]
+                        elif dim == 1:
+                            unpacked_indices = unpacked_indices[:, start_idx:end_idx]
                         print(f'reshard {key} from {indices_shape} to {unpacked_indices.shape}, rank: {rank}, dim: {dim}')
                         
                         if num_res_centroids > 0:
@@ -159,7 +161,10 @@ if __name__ == "__main__":
                             slice_size = res_indices_shape[dim] // args.world_size
                             start_idx = rank * slice_size
                             end_idx = (rank + 1) * slice_size if rank < args.world_size - 1 else res_indices_shape[dim]
-                            unpacked_res_indices = unpacked_res_indices[start_idx:end_idx]
+                            if dim == 0:
+                                unpacked_res_indices = unpacked_res_indices[start_idx:end_idx, :]
+                            elif dim == 1:
+                                unpacked_res_indices = unpacked_res_indices[:, start_idx:end_idx]
                             print(f'reshard {key} from {res_indices_shape} to {unpacked_res_indices.shape}, rank: {rank}, dim: {dim}')
                         else:
                             unpacked_res_indices = None
