@@ -14,7 +14,7 @@ reverse_mapping = {
     "wq": 0,
     "wq_a": None,
     "q_norm": None,
-    "wq_b": 0, # <-
+    "wq_b": 0,
     "wkv_a": None,
     "kv_norm": None,
     "wkv_b": 0,
@@ -35,6 +35,12 @@ def get_mapping_key(key, filter_key=reverse_mapping.keys()):
         if part in filter_key:
             return part 
     return None
+
+def set_dim(dim):
+    if dim == 0:
+        return 1
+    elif dim == 1:
+        return 0
 
 if __name__ == "__main__":
     # Parse command line arguments
@@ -60,12 +66,12 @@ if __name__ == "__main__":
     with open(args.input_model_config, 'r') as f:
         config = json.load(f)
         config = config['quantization_config']['config_for_layers']
-    
      
     for rank in range(args.world_size):
         print(f'processing rank: {rank}')
         # Load the safetensors file
-        model_data = safetensors.torch.load_file(args.input_model)
+        model_data = safetensors.torch.load_file(args.input_model) 
+         
         n_local_experts = args.num_experts // args.world_size
         # print(f'model_data keys: {model_data.keys()}')
         keys = list(model_data.keys())
@@ -75,7 +81,8 @@ if __name__ == "__main__":
             if mapping_key is None:
                 continue
             dim = reverse_mapping[mapping_key]
-            # expert parallelism
+            model_data[key] = model_data[key].to('cuda')
+            ## expert parallelism
             if '.experts.' in key:
                 idx = int(key.split('.')[4])
                 if idx < rank * n_local_experts or idx >= (rank + 1) * n_local_experts:
@@ -85,7 +92,7 @@ if __name__ == "__main__":
                 else:
                     print(f'keep {key}')
                     continue
-            # handle weight_bias and weight_scale
+            ## handle weight_bias and weight_scale
             elif dim is not None and 'centroids' not in key:
                 # weight_bias and weight_scale are 1D tensors
                 if 'weight_bias' in key or 'weight_scale' in key:
@@ -101,7 +108,7 @@ if __name__ == "__main__":
                     else:
                         # do nothing
                         pass
-                # handle tensor except indices
+                # handle tensor except indices, head, embed
                 elif 'indices' not in key and 'weight_bias' not in key and 'weight_scale' not in key:
                     print(f'{key}, mapping_key: {mapping_key}, dim: {dim}, model_data[key].shape: {model_data[key].shape}')
                     shape = model_data[key].shape
@@ -111,7 +118,7 @@ if __name__ == "__main__":
                     end_idx = (rank + 1) * slice_size if rank < args.world_size - 1 else shape[dim]
                     
                     if dim == 0:
-                        model_data[key] = model_data[key][start_idx:end_idx]
+                        model_data[key] = model_data[key][start_idx:end_idx, :]
                     elif dim == 1:
                         model_data[key] = model_data[key][:, start_idx:end_idx]
                     
@@ -142,17 +149,18 @@ if __name__ == "__main__":
                                                         res_bits=res_bits,
                                                         num_res_elements=group_size,
                                                         index_dtype=torch.uint16)
-                        print(f'unpacked_indices: {unpacked_indices.shape}, dtype: {unpacked_indices.dtype}')
-                        indices_shape = unpacked_indices.shape
-                        assert indices_shape[dim] % args.world_size == 0
-                        slice_size = indices_shape[dim] // args.world_size
+                        print(f'unpacked_indices: {unpacked_indices.shape}, dtype: {unpacked_indices.dtype}, index_bits: {index_bits}, res_bits: {res_bits}')
+                        unpacked_indices_shape = unpacked_indices.shape
+                        assert unpacked_indices_shape[dim] % args.world_size == 0
+                        slice_size = unpacked_indices_shape[dim] // args.world_size
                         start_idx = rank * slice_size
-                        end_idx = (rank + 1) * slice_size if rank < args.world_size - 1 else indices_shape[dim]
+                        end_idx = (rank + 1) * slice_size if rank < args.world_size - 1 else unpacked_indices_shape[dim]
                         if dim == 0:
                             unpacked_indices = unpacked_indices[start_idx:end_idx, :]
                         elif dim == 1:
                             unpacked_indices = unpacked_indices[:, start_idx:end_idx]
-                        print(f'reshard {key} from {indices_shape} to {unpacked_indices.shape}, rank: {rank}, dim: {dim}')
+                        unpacked_indices = unpacked_indices.to(torch.uint16) 
+                        print(f'reshard {key} from {unpacked_indices_shape} to {unpacked_indices.shape}, rank: {rank}, dim: {dim}')
                         
                         if num_res_centroids > 0:
                             print(f'unpacked_res_indices: {unpacked_res_indices.shape}, dtype: {unpacked_res_indices.dtype}')
@@ -165,6 +173,7 @@ if __name__ == "__main__":
                                 unpacked_res_indices = unpacked_res_indices[start_idx:end_idx, :]
                             elif dim == 1:
                                 unpacked_res_indices = unpacked_res_indices[:, start_idx:end_idx]
+                            unpacked_res_indices = unpacked_res_indices.to(torch.uint16) 
                             print(f'reshard {key} from {res_indices_shape} to {unpacked_res_indices.shape}, rank: {rank}, dim: {dim}')
                         else:
                             unpacked_res_indices = None
@@ -180,6 +189,7 @@ if __name__ == "__main__":
                     )
                     model_data[key] = packed_indices
                     print(f'packed_indices: {packed_indices.shape}, dtype: {packed_indices.dtype}')
+            model_data[key] = model_data[key].to('cpu')
             print('--------------------------------')    
         # end of rank, save the model
         safetensors.torch.save_file(model_data, f'{args.output_path}/model{rank}-mp{args.world_size}.safetensors')
