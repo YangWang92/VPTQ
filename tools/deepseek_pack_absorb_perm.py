@@ -190,9 +190,13 @@ def process_linear(linear, quant_config, enable_pack: bool=False, enable_absorb_
             )
 
             # work around for packed indices shape
-            print(f'packed_indices shape: {packed_indices.shape}')
+            print(f'packed_indices shape: {packed_indices.shape},'
+                  f'enable_residual: {linear.enable_residual},'
+                  f'res_indices shape: {res_indices.shape if linear.enable_residual else None}')
 
             linear.indices.data = packed_indices
+            if linear.enable_residual:
+                linear.res_indices = None
             print(f'repacked linear.indices shape: {linear.indices.shape}')
             print('-------')
 
