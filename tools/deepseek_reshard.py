@@ -73,7 +73,7 @@ if __name__ == "__main__":
         model_data = safetensors.torch.load_file(args.input_model) 
          
         n_local_experts = args.num_experts // args.world_size
-        # print(f'model_data keys: {model_data.keys()}')
+        print(f'model_data keys: {model_data.keys()}')
         keys = list(model_data.keys())
         for key in keys:
             # print(f'processing {key}')

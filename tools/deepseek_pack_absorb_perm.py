@@ -170,6 +170,7 @@ def process_linear(linear, quant_config, enable_pack: bool=False, enable_absorb_
         linear.indices.data = indices
 
         if linear.enable_residual:
+            print(f'linear.res_indices shape: {linear.res_indices.shape}')
             res_indices = linear.res_indices
             res_indices = res_indices[..., invert_perm]
             linear.res_indices.data = res_indices
@@ -196,6 +197,7 @@ def process_linear(linear, quant_config, enable_pack: bool=False, enable_absorb_
 
             linear.indices.data = packed_indices
             if linear.enable_residual:
+                print(f'remove residual indices')
                 linear.res_indices = None
             print(f'repacked linear.indices shape: {linear.indices.shape}')
             print('-------')
