@@ -18,24 +18,22 @@ def read_layer_dist(file_path):
                     layer_dist[layer_key] = values
     return layer_dist
 
-def filter_and_categorize_layers(layer_dist, high_prob_threshold=0.01, low_prob_threshold=0.001):
+def filter_layers(layer_dist, threshold=0.01):
     """
-    Filter and categorize layer values based on probability thresholds.
-    - Values >= high_prob_threshold: Use 3 bits
-    - Values between low_prob_threshold and high_prob_threshold: Use 2 bits
-    - Values < low_prob_threshold: Filter out (don't include)
+    Filter layer values based on a single probability threshold.
+    - Values >= threshold: Keep
+    - Values < threshold: Filter out
     
     Returns:
-    - filtered_dist: Dictionary with filtered values
+    - filtered_dist: Dictionary with {layer_idx: [high_dist_expert_ids]}
     - stats: Statistics about the filtering process
     """
     filtered_dist = {}
     stats = {
         'total_values': 0,
-        'high_prob_values': 0,  # 3 bits
-        'low_prob_values': 0,   # 2 bits
-        'filtered_values': 0,   # removed
-        'memory_savings': 0,    # estimated memory savings
+        'kept_values': 0,     # values above threshold
+        'filtered_values': 0,  # values below threshold
+        'memory_savings': 0,   # estimated memory savings
     }
     
     for layer, values in layer_dist.items():
@@ -43,73 +41,62 @@ def filter_and_categorize_layers(layer_dist, high_prob_threshold=0.01, low_prob_
         total = sum(values)
         normalized_values = [v/total for v in values]
         
-        # Initialize lists for different categories
-        high_prob = []
-        low_prob = []
+        # Initialize list for high distribution expert IDs
+        high_dist_expert_ids = []
         
-        # Categorize values
+        # Filter values based on threshold
         for i, prob in enumerate(normalized_values):
             stats['total_values'] += 1
             
-            if prob >= high_prob_threshold:
-                high_prob.append((i, values[i]))
-                stats['high_prob_values'] += 1
-            elif prob >= low_prob_threshold:
-                low_prob.append((i, values[i]))
-                stats['low_prob_values'] += 1
+            if prob >= threshold:
+                high_dist_expert_ids.append(i)  # Only store the expert ID
+                stats['kept_values'] += 1
             else:
                 stats['filtered_values'] += 1
         
-        # Only include layers with sufficient high probability values
-        if high_prob or low_prob:
-            filtered_dist[layer] = {
-                'high_prob': high_prob,  # 3 bits
-                'low_prob': low_prob     # 2 bits
-            }
+        # Only include layers with high distribution experts
+        if high_dist_expert_ids:
+            filtered_dist[layer] = high_dist_expert_ids
     
     # Calculate memory savings (original: 8 bits per value)
     original_bits = stats['total_values'] * 8
-    new_bits = (stats['high_prob_values'] * 3) + (stats['low_prob_values'] * 2)
+    # Assuming we use 4 bits for kept values (simplified from previous approach)
+    new_bits = stats['kept_values'] * 4
     stats['memory_savings'] = 1 - (new_bits / original_bits)
     
     return filtered_dist, stats
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python token_dist.py <file_path> [high_prob_threshold] [low_prob_threshold]")
+        print("Usage: python token_dist.py <file_path> [threshold]")
         return
     
     file_path = sys.argv[1]
     
-    # Optional command-line arguments for thresholds
-    high_prob_threshold = float(sys.argv[2]) if len(sys.argv) > 2 else 0.01
-    low_prob_threshold = float(sys.argv[3]) if len(sys.argv) > 3 else 0.001
+    # Optional command-line argument for threshold
+    threshold = float(sys.argv[2]) if len(sys.argv) > 2 else 0.01
     
     layer_dist = read_layer_dist(file_path)
     
-    # Apply filtering and categorization
-    filtered_dist, stats = filter_and_categorize_layers(
+    # Apply filtering with single threshold
+    filtered_dist, stats = filter_layers(
         layer_dist, 
-        high_prob_threshold=high_prob_threshold,
-        low_prob_threshold=low_prob_threshold
+        threshold=threshold
     )
     
     # Print statistics
     print("\nFiltering Statistics:")
     print(f"Total values: {stats['total_values']}")
-    print(f"High probability values (3 bits): {stats['high_prob_values']} ({stats['high_prob_values']/stats['total_values']*100:.2f}%)")
-    print(f"Low probability values (2 bits): {stats['low_prob_values']} ({stats['low_prob_values']/stats['total_values']*100:.2f}%)")
+    print(f"Kept values: {stats['kept_values']} ({stats['kept_values']/stats['total_values']*100:.2f}%)")
     print(f"Filtered out values: {stats['filtered_values']} ({stats['filtered_values']/stats['total_values']*100:.2f}%)")
     print(f"Estimated memory savings: {stats['memory_savings']*100:.2f}%")
     
     # Print filtered distribution summary
     print("\nFiltered Layer Distribution:")
-    for layer, categories in filtered_dist.items():
-        high_count = len(categories['high_prob'])
-        low_count = len(categories['low_prob'])
-        total = high_count + low_count
-        print(f"{layer}: {total} values total ({high_count} high-prob, {low_count} low-prob)")
-    
+    for layer, expert_ids in filtered_dist.items():
+        print(f"Layer {layer}: {len(expert_ids)} experts with high distribution")
+        # print(f"Layer {layer}: {len(expert_ids)} experts with high distribution, {expert_ids}")
+ 
     # Save the filtered distribution to a new file
     output_file = file_path.replace('.jsonl', '_filtered.json')
     with open(output_file, 'w') as f:
