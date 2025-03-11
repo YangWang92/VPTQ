@@ -9,6 +9,8 @@ from pathlib import Path
 import torch
 from setuptools import find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+from setuptools.command.install import install
+from setuptools.command.develop import develop
 
 cur_path = Path(__file__).parent
 
@@ -19,6 +21,22 @@ def get_version():
             if "version" in line:
                 return line.split("=")[-1].strip().strip('"')
     return "0.0.1"
+
+
+# Custom install command that sets build_isolation to False
+class CustomInstallCommand(install):
+    def run(self):
+        # Set environment variable to indicate no build isolation
+        os.environ['PIP_NO_BUILD_ISOLATION'] = '1'
+        super().run()
+
+
+# Custom develop command that sets build_isolation to False
+class CustomDevelopCommand(develop):
+    def run(self):
+        # Set environment variable to indicate no build isolation
+        os.environ['PIP_NO_BUILD_ISOLATION'] = '1'
+        super().run()
 
 
 def build_cuda_extensions():
@@ -104,5 +122,9 @@ setup(
     install_requires=get_requirements(),
     version=get_version(),
     ext_modules=build_cuda_extensions(),
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass={
+        "build_ext": BuildExtension,
+        "install": CustomInstallCommand,
+        "develop": CustomDevelopCommand,
+    },
 )
