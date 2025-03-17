@@ -12,7 +12,8 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 
-cur_path = Path(__file__).parent
+# cur_path = Path(__file__).parent
+cur_path = Path(os.path.abspath(os.path.dirname(__file__)))
 
 
 def get_version():
@@ -116,9 +117,9 @@ def get_requirements():
 
 
 setup(
-    name="vptq",
+    name="vptq-aqua",
     python_requires=">=3.8",
-    packages=find_packages(exclude=[""]),
+    packages=find_packages(exclude=[""], include=["vptq", "vptq.*"]),
     install_requires=get_requirements(),
     version=get_version(),
     ext_modules=build_cuda_extensions(),

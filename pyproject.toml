@@ -1,5 +1,5 @@
 [project]
-name = "vptq"
+name = "vptq-aqua"
 version = "0.0.4"
 authors = [
   { name="Yang Wang", email="wyatuestc@gmail.com"},
@@ -23,6 +23,8 @@ dependencies = [
     "transformers>=4.45",
     "sentence_transformers"
 ]
+
+
 
 [project.urls]
 Homepage = "https://github.com/microsoft/VPTQ"
@@ -99,3 +101,4 @@ ensure_newline_before_comments = true
 # ignore pdf files
 [tool.setuptools]
 packages.find.exclude = ["**/*.pdf"]
+

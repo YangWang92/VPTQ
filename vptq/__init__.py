@@ -7,6 +7,6 @@ import importlib.metadata
 
 from vptq.layers import AutoModelForCausalLM, VQuantLinear
 
-__version__ = importlib.metadata.version("vptq")
+__version__ = importlib.metadata.version("vptq-aqua")
 
 __all__ = ["AutoModelForCausalLM", "VQuantLinear"]
