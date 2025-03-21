@@ -13,7 +13,7 @@ namespace vptq {
     using nv_type = typename C10ToNvType<scalar_t>::type;                      \
     kernels::DequantizeWithOutliers_PackIndice<nv_type, IDXBITS, ResidualBits, \
                                                BASEGROUP, OUT_OUF_INF>         \
-        <<<blocks, threads, 0, stream>>>(                                      \
+        <<<blocks, threads, smem_size, stream>>>(                              \
             reinterpret_cast<nv_type*>(output.data_ptr<scalar_t>()),           \
             q_indice.data_ptr<int32_t>(), outliers_indices_ptr,                \
             reinterpret_cast<const nv_type*>(centroids.data_ptr<scalar_t>()),  \
@@ -32,7 +32,8 @@ namespace vptq {
                 weight_bias.data_ptr<scalar_t>()),                             \
             out_size[0], out_size[1], outliers_indices_size_n1,                \
             outliers_centroids_size_n1, q_indice.stride(0),                    \
-            q_indice.stride(1), centroids.stride(0), q_indice.size(0));        \
+            q_indice.stride(1), centroids.stride(0), q_indice.size(0),         \
+            use_shared_mem);                                                   \
   }
 
 #define callDequantWithOutliers_dtype(IDXBITS, BASEGROUP, OUT_OUF_INF, \
@@ -201,6 +202,70 @@ torch::Tensor launch_deqantize_outliers_cuda_packkernel(
           : nullptr;
 
   auto stream = at::cuda::getCurrentCUDAStream().stream();
+  
+  // Calculate the shared memory size needed for the kernel
+  size_t smem_size = 0;
+  // Determine the size of the scalar type (float16 or bfloat16)
+  size_t scalar_size = 0;
+  if (centroids.dtype() == at::ScalarType::Half) {
+    scalar_size = sizeof(c10::Half);
+  } else {
+    scalar_size = sizeof(c10::BFloat16);
+  }
+  
+  // Space for centroids: max_centroids_size * base_groupsize * sizeof(scalar_t)
+  int max_centroids_size = (1 << index_bits);
+  smem_size += max_centroids_size * base_groupsize * scalar_size;
+  
+  // Space for residual centroids (if needed)
+  if (res_index_bits > 0) {
+    int max_residual_size = (1 << res_index_bits);
+    smem_size += max_residual_size * base_groupsize * scalar_size;
+  }
+  
+  // Space for outliers centroids (if needed)
+  if (outliers_indices_size_n1 > 0) {
+    int max_outliers_size = 256; // Assuming maximum outliers size
+    smem_size += max_outliers_size * outliers_centroids_size_n1 * scalar_size;
+  }
+  
+  // Check that shared memory size doesn't exceed device limits
+  int device_id;
+  cudaGetDevice(&device_id);
+  int max_shared_mem_per_block;
+  cudaDeviceGetAttribute(&max_shared_mem_per_block, 
+                        cudaDevAttrMaxSharedMemoryPerBlock, 
+                        device_id);
+  
+  // If shared memory size is too large, fall back to global memory implementation
+  bool use_shared_mem = true;
+  if (smem_size > static_cast<size_t>(max_shared_mem_per_block)) {
+    // Print warning and fall back to global memory implementation
+    std::cerr << "Warning: Required shared memory size (" << smem_size 
+              << " bytes) exceeds device limit (" << max_shared_mem_per_block 
+              << " bytes). Falling back to global memory implementation." << std::endl;
+    smem_size = 0;
+    use_shared_mem = false;
+  }
+  
+  // Check if we're running on a device with compute capability below 7.0 (Volta)
+  // and reduce shared memory usage if needed
+  int compute_capability_major;
+  cudaDeviceGetAttribute(&compute_capability_major, 
+                        cudaDevAttrComputeCapabilityMajor, 
+                        device_id);
+  
+  if (compute_capability_major < 7) {
+    // For older devices, use less shared memory or none at all
+    if (smem_size > static_cast<size_t>(max_shared_mem_per_block / 2)) {
+      std::cerr << "Warning: Running on pre-Volta GPU (compute capability " 
+                << compute_capability_major << "). "
+                << "Shared memory optimization may not be optimal. "
+                << "Falling back to global memory implementation." << std::endl;
+      smem_size = 0;
+      use_shared_mem = false;
+    }
+  }
 
   switch (base_groupsize) {
     CASE_DispatchDequantWithOutliers(16);
